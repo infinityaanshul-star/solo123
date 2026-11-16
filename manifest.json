@@ -1,0 +1,9 @@
+{
+  "name": "Soul Leveling: Shadow Monarch Cinematic",
+  "short_name": "Shadow Monarch",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#050814",
+  "theme_color": "#00f0ff",
+  "icons": []
+}

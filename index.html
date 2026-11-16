@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Soul Leveling: Shadow Monarch - Cinematic Edition</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { background-color: #03050d; color: #00f0ff; font-family: 'Courier New', monospace; overflow: hidden; height: 100vh; width: 100vw; display: flex; flex-direction: column; }
+        header { background: rgba(3, 5, 13, 0.95); border-bottom: 2px solid #00f0ff; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; z-index: 10; font-size: 13px; text-shadow: 0 0 10px #00f0ff; }
+        #game-container { flex: 1; position: relative; width: 100%; height: calc(100vh - 50px); overflow: hidden; background: radial-gradient(circle at center, #080e22 0%, #03050d 100%); }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        /* Cinematic HUD & Status Panels */
+        .panel { position: absolute; top: 12px; left: 12px; background: rgba(3, 5, 13, 0.88); border: 1px solid rgba(0, 240, 255, 0.6); padding: 10px 14px; border-radius: 8px; box-shadow: 0 0 20px rgba(0, 240, 255, 0.25); z-index: 5; pointer-events: none; max-width: 280px; font-size: 11px; backdrop-filter: blur(4px); }
+        .panel h3 { color: #fff; margin-bottom: 6px; border-bottom: 1px solid rgba(0, 240, 255, 0.4); padding-bottom: 3px; letter-spacing: 1px; }
+        
+        .system-notif { position: absolute; top: 12px; right: 12px; background: rgba(0, 20, 40, 0.85); border: 1px solid #00f0ff; padding: 8px 12px; border-radius: 6px; font-size: 11px; color: #fff; text-shadow: 0 0 8px #00f0ff; box-shadow: 0 0 15px rgba(0,240,255,0.3); z-index: 5; pointer-events: none; }
+
+        /* Mobile Touch Controls */
+        #joystick-base { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; background: rgba(0, 240, 255, 0.08); border: 2px solid rgba(0, 240, 255, 0.35); border-radius: 50%; z-index: 20; touch-action: none; }
+        #joystick-knob { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(0, 240, 255, 0.65); border: 2px solid #fff; border-radius: 50%; pointer-events: none; box-shadow: 0 0 12px #00f0ff; }
+        
+        .action-buttons { position: absolute; bottom: 30px; right: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 20; }
+        .btn { background: rgba(0, 240, 255, 0.2); border: 2px solid #00f0ff; color: #fff; padding: 12px 22px; font-weight: bold; border-radius: 8px; font-size: 14px; text-shadow: 0 0 6px #00f0ff; box-shadow: 0 0 12px rgba(0,240,255,0.4); cursor: pointer; transition: background 0.1s; }
+        .btn:active { background: rgba(0, 240, 255, 0.5); }
+        .btn-arise { background: rgba(138, 43, 225, 0.25); border-color: #ba55d3; color: #e8d0ff; text-shadow: 0 0 6px #ba55d3; box-shadow: 0 0 12px rgba(186,85,211,0.45); }
+        
+        #exit-btn { position: absolute; top: 12px; right: 140px; z-index: 25; background: rgba(255, 0, 0, 0.25); border: 2px solid #ff4444; color: #fff; padding: 6px 14px; font-weight: bold; border-radius: 4px; font-size: 11px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header>
+        <div><strong>HUNTER: SUNG JIN-WOO</strong> | LV. <span id="lbl-level">1</span></div>
+        <div>HP: <span id="lbl-hp">100</span>/100</div>
+        <div>MP: <span id="lbl-mp">50</span>/50</div>
+    </header>
+
+    <button id="exit-btn" onclick="alert('Safe zone reached.')">EXIT</button>
+
+    <div id="game-container">
+        <canvas id="renderCanvas"></canvas>
+        
+        <div class="panel">
+            <h3>[ STATUS WINDOW ]</h3>
+            <p><strong>Class:</strong> Shadow Monarch</p>
+            <p><strong>STR:</strong> 15 | <strong>AGI:</strong> 12</p>
+            <p><strong>Shadow Army:</strong> <span id="army-count">0</span> soldiers</p>
+        </div>
+
+        <div class="system-notif">
+            [ SYSTEM: DUNGEON RAID ACTIVE ]
+        </div>
+
+        <div id="joystick-base">
+            <div id="joystick-knob"></div>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-arise" onclick="triggerArise()">ARISE</button>
+            <button class="btn" onclick="triggerAttack()">SLASH</button>
+            <button class="btn" onclick="triggerTimeStop()">4D STOP</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('renderCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let player = { x: canvas.width / 2 - 60, y: canvas.height / 2, radius: 28, level: 1, hp: 100, mp: 50, str: 15, attacking: false, slashTimer: 0 };
+        let enemy = { x: canvas.width / 2 + 140, y: canvas.height / 2 - 20, hp: 100, maxHp: 100, name: 'Lycan Alpha (Lv. 3)', alive: true };
+        let shadowSoldiers = [];
+        let shadowArmyCount = 0;
+        let isTimeStopped = false;
+        let particles = [];
+
+        // Joystick Logic
+        const jBase = document.getElementById('joystick-base');
+        const jKnob = document.getElementById('joystick-knob');
+        let joyActive = false;
+        let joyVector = { x: 0, y: 0 };
+
+        jBase.addEventListener('touchstart', (e) => { joyActive = true; handleTouch(e); });
+        jBase.addEventListener('touchmove', (e) => { if (joyActive) handleTouch(e); });
+        jBase.addEventListener('touchend', () => { joyActive = false; joyVector = { x: 0, y: 0 }; jKnob.style.transform = `translate(0px, 0px)`; });
+
+        function handleTouch(e) {
+            const rect = jBase.getBoundingClientRect();
+            const touch = e.touches[0];
+            let dx = touch.clientX - (rect.left + rect.width / 2);
+            let dy = touch.clientY - (rect.top + rect.height / 2);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = 35;
+            if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
+            jKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            joyVector = { x: dx / maxDist, y: dy / maxDist };
+        }
+
+        function triggerAttack() {
+            if (!enemy.alive) return;
+            player.attacking = true;
+            player.slashTimer = 15;
+            enemy.hp -= (player.str + 20);
+            
+            // Spark particles
+            for(let i=0; i<12; i++) {
+                particles.push({
+                    x: enemy.x, y: enemy.y,
+                    vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                    color: '#00f0ff', life: 25
+                });
+            }
+
+            if (enemy.hp <= 0) {
+                enemy.hp = 0;
+                enemy.alive = false;
+                alert('Monster Defeated! Tap ARISE to command your shadow soldiers.');
+            }
+        }
+
+        function triggerArise() {
+            if (!enemy.alive && enemy.hp === 0) {
+                shadowArmyCount++;
+                document.getElementById('army-count').innerText = shadowArmyCount;
+                shadowSoldiers.push({ x: enemy.x - 40, y: enemy.y + 20 });
+                alert('ARISE! Shadow extraction successful. Soldier joined the Shadow Army.');
+                // Respawn tougher enemy
+                enemy.hp = 120; enemy.maxHp = 120; enemy.alive = true;
+                enemy.name = 'Shadow Beast (Lv. 5)';
+            } else {
+                alert('No fallen monster corpse available for ARISE extraction!');
+            }
+        }
+
+        function triggerTimeStop() {
+            isTimeStopped = !isTimeStopped;
+            alert(isTimeStopped ? '4D Time-Stop Dilation: ACTIVE! Reality frozen.' : 'Time resumed.');
+        }
+
+        function gameLoop() {
+            ctx.fillStyle = '#03050d';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Cinematic Stone Dungeon Floor & Perspective Grid
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.08)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.height; i += 40) {
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+            for (let j = 0; j < canvas.width; j += 60) {
+                ctx.beginPath(); ctx.moveTo(j, 0); ctx.lineTo(j, canvas.height); ctx.stroke();
+            }
+
+            // Move player
+            if (!isTimeStopped) {
+                player.x += joyVector.x * 4.5;
+                player.y += joyVector.y * 4.5;
+            }
+
+            // Draw Shadow Soldiers (Army)
+            shadowSoldiers.forEach(s => {
+                ctx.shadowBlur = 12; ctx.shadowColor = '#ba55d3';
+                ctx.fillStyle = '#4b0082';
+                ctx.beginPath(); ctx.arc(s.x, s.y, 16, 0, Math.PI * 2); ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+
+            // Draw Enemy (Photorealistic beast silhouette & red eyes)
+            if (enemy.alive) {
+                ctx.shadowBlur = 18; ctx.shadowColor = '#ff2255';
+                ctx.fillStyle = '#11131a';
+                ctx.beginPath();
+                ctx.ellipse(enemy.x, enemy.y, 35, 22, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Red glowing eyes
+                ctx.fillStyle = '#ff0033';
+                ctx.fillRect(enemy.x + 10, enemy.y - 8, 4, 4);
+                ctx.shadowBlur = 0;
+
+                // Enemy HP Bar
+                ctx.fillStyle = '#111';
+                ctx.fillRect(enemy.x - 35, enemy.y - 40, 70, 7);
+                ctx.fillStyle = '#ff2255';
+                ctx.fillRect(enemy.x - 35, enemy.y - 40, 70 * (enemy.hp / enemy.maxHp), 7);
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px monospace';
+                ctx.fillText(enemy.name, enemy.x - 35, enemy.y - 48);
+            }
+
+            // Draw Player (Sung Jin-Woo with Blue Dagger Arc & Purple/Blue Aura)
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = '#00f0ff';
+            ctx.fillStyle = '#0a192f';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner core
+            ctx.fillStyle = '#00f0ff';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius - 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Slash Effect Arc
+            if (player.attacking) {
+                player.slashTimer--;
+                ctx.strokeStyle = '#00f0ff';
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#00f0ff';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, 50, -0.5, Math.PI * 0.8);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                if (player.slashTimer <= 0) player.attacking = false;
+            }
+
+            // Update & Draw Particles
+            particles.forEach((p, index) => {
+                p.x += p.vx; p.y += p.vy; p.life--;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 3, 3);
+                if (p.life <= 0) particles.splice(index, 1);
+            });
+
+            // Player Label
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px monospace';
+            ctx.fillText('Sung Jin-Woo (Shadow Monarch)', player.x - 80, player.y - 38);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
